@@ -14,22 +14,23 @@
 在 "<> Code" 按 Download ZIP，然後解壓。將整個資料夾放在你想要的地方便可。
 ```
 2. **建立詩歌資料夾捷徑**
-* 2.1. 複製你存放詩歌 PowerPoint 的資料夾路徑
-* 2.2. 在剛下載的 Auto-Worship-Folder\templates 內找到 songs-folder
-* 2.3. 按右鍵，然後 Alt + Enter
-* 2.4. 將 2.1 的路徑貼在 Target
-* 2.5. 按 Apply 再按 OK
+* 2.1 複製你存放詩歌 PowerPoint 的資料夾路徑
+* 2.2 在剛下載的 Auto-Worship-Folder-main\templates 內找到 songs-folder
+* 2.3 按右鍵，然後選 Properties
+* 2.4 將 2.1 的路徑貼在 Target
+* 2.5 按 Apply，再按 OK 完成
+
 
 ## 如何使用
 
 1. 打開 `宣召及啟應.txt`、`經訓.txt`、`讀經.txt` 並按現有格式更新經文與相關內容。
 2. 雙擊 `create-worship-folder.vbs`。
-3. 輸入要預備的崇拜名稱，例如20260906。
+3. 輸入要預備的崇拜名稱，例如 20260906。
 4. 輸入領詩的全部歌名，以逗號分隔，例如 歡欣, 生趣, 慈繩愛索, 十架的冠冕。
-5. 按畫面指示完成操作。
-4. 到指定位置查看新建立的崇拜文件夾。
-
-> 第一次使用前，請先備份整個專案。
+> 此工具會在 songs-folder 的資料夾中尋找與歌名完全相符的 PPTX，如找到便會將之複製過來
+5. 等待約數十秒，畫面會出現 `完成。master.pptx 已更新` 字樣。
+6. 按 OK 後再次見到 `完成`。
+7. 此時資料夾中會新增了一個你在 #3 輸入的資料夾，裡面便是崇拜所用的全部檔案。
 
 ## refresh-master.vbs
 重新讀取一次資料夾內的全部 PPTX，並按順序更新 master.pptx 和播放檔 (PPSX)
