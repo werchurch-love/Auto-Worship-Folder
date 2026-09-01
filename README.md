@@ -9,20 +9,16 @@
 
 ## 首次使用
 
-1. 下載
+1. **下載**
 ```text
 在 "<> Code" 按 Download ZIP，然後解壓。將整個資料夾放在你想要的地方便可。
 ```
-2. 建立詩歌資料夾捷徑
-2.1. 找到你存放詩歌 PowerPoint 的資料夾。
-2.2. 在該資料夾按右鍵。
-2.3. 選「傳送到」→「桌面（建立捷徑）」。
-2.4. 將新捷徑改名為 `songs-folder`。
-2.5. 然後剪下並貼到：
-
-   ```text
-   templates\
-   ```
+2. **建立詩歌資料夾捷徑**
+* 2.1. 複製你存放詩歌 PowerPoint 的資料夾路徑
+* 2.2. 在剛下載的 Auto-Worship-Folder\templates 內找到 songs-folder
+* 2.3. 按右鍵，然後 Alt + Enter
+* 2.4. 將 2.1 的路徑貼在 Target
+* 2.5. 按 Apply 再按 OK
 
 ## 如何使用
 
