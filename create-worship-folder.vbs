@@ -1,5 +1,6 @@
 Option Explicit
 
+Const sequence_call_response = "02_"
 Const sequence_songName = "20_"
 Const sequence_scriptures = "30_"
 Const sequence_reading = "40_"
@@ -14,12 +15,11 @@ Const MAX_CHARS_PER_SLIDE = 110
 Const MAX_LINES_PER_SLIDE = 6
 
 Const MAX_SEARCH_YEAR = 2100
-Const MIN_SEARCH_YEAR = 2010
+Const MIN_SEARCH_YEAR = 2000
 
 Const FILE_ATTRIBUTE_REPARSE_POINT = 1024
 Const msoTabStopLeft = 1
 
-' [ADDED] Guard/cleanup settings
 Const GUARD_MAX_TEXT_BYTES = 5242880
 Const GUARD_MIN_TEXT_BYTES = 4
 Const GUARD_KILL_ENABLED = True
@@ -57,9 +57,9 @@ rootFolder = fso.GetParentFolderName(WScript.ScriptFullName)
 templatesFolder = fso.BuildPath(rootFolder, "templates")
 copyFolder = fso.BuildPath(templatesFolder, "worship-files")
 
-readingTextFile = CNRead() & ".txt"
-scripturesTextFile = CNScriptures() & ".txt"
-callResponseTextFile = CNCallResponse() & ".txt"
+readingTextFile = txtPrefix() & CNRead() & ".txt"
+scripturesTextFile = txtPrefix() & CNScriptures() & ".txt"
+callResponseTextFile = txtPrefix() & CNCallResponse() & ".txt"
 
 readingOutputFile = CNRead() & ".pptx"
 scripturesOutputFile = CNScriptures() & ".pptx"
@@ -231,13 +231,13 @@ If Not CreateCallResponsePpt( _
     ppt, _
     callResponseTemplate, _
     fso.BuildPath(rootFolder, callResponseTextFile), _
-    fso.BuildPath(outputFolder, "02_" & callResponseOutputFile), _
+    fso.BuildPath(outputFolder, sequence_call_response & callResponseOutputFile), _
     errText _
 ) Then
     CleanupFolder outputFolder
     SafeQuitPowerPoint ppt
 
-    Fail MsgCannotCreateFile("02_" & callResponseOutputFile) & _
+    Fail MsgCannotCreateFile(sequence_call_response & callResponseOutputFile) & _
          vbCrLf & errText
 End If
 
@@ -291,7 +291,7 @@ For i = 0 To UBound(songNames)
     songName = Trim(songNames(i))
 
     If songName <> "" Then
-        songFilePath = FindSongPpt(songRootPath, songName & ".pptx")
+        songFilePath = FindSongPpt(songRootPath, songName)
 
         If songFilePath <> "" Then
             errText = ""
@@ -340,9 +340,9 @@ RemoveTxtFilesWithMatchingPptx outputFolder
 SafeQuitPowerPoint ppt
 Set ppt = Nothing
 
-' ---------------------------------------------------------------
+'================================================================
 ' Refresh master after all PPTX files are in the output folder.
-' ---------------------------------------------------------------
+'================================================================
 
 errText = ""
 
@@ -389,38 +389,275 @@ EndOfRunCleanup
 ' ===============================================================
 ' Song search
 ' ===============================================================
+' Replace the existing FindSongPpt function with this version.
+' Add the two helper functions below it: SearchImmediateNonYearFolders
+' and FindFileRecursivePptxOnly.
+'
+' Search order:
+' 1. <root>\詩歌\<requested filename> (direct files only)
+' 2. Integer-named root folders interpreted as years, newest to oldest;
+'    recursively search for the requested filename.
+' 3. Non-integer-named root folders; recursively search PPTX files only
+'    for the requested filename.
+'
+' The requested filename is still an exact case-insensitive match.
 
-Function FindSongPpt(ByVal worshipDataRoot, ByVal requestedFileName)
+Function FindSongPpt(ByVal worshipDataRoot, ByVal songName)
 
     Dim songFolder
-    Dim yearValue, yearFolder
+    Dim yearValue
+    Dim yearFolder
+    Dim rootFolder
+    Dim childFolder
     Dim foundPath
 
     FindSongPpt = ""
 
-    ' First priority:
-    ' 崇拜用資料\詩歌\<requested file>
+    ' First priority: direct PPTX files in <root>\詩歌.
     songFolder = fso.BuildPath(worshipDataRoot, CNSongs())
 
-    If fso.FileExists(fso.BuildPath(songFolder, requestedFileName)) Then
-        FindSongPpt = fso.BuildPath(songFolder, requestedFileName)
+    foundPath = FindMatchingPptxDirect(songFolder, songName)
+
+    If foundPath <> "" Then
+        FindSongPpt = foundPath
         Exit Function
     End If
 
-    ' Second priority:
-    ' Searches all ordinary subfolders within each year.
+    ' Second priority: integer-named year folders, newest to oldest.
     For yearValue = MinNumber(Year(Date), MAX_SEARCH_YEAR) _
                     To MIN_SEARCH_YEAR Step -1
 
         yearFolder = fso.BuildPath(worshipDataRoot, CStr(yearValue))
 
         If fso.FolderExists(yearFolder) Then
-            foundPath = FindFileRecursive(yearFolder, requestedFileName)
+            foundPath = FindMatchingPptxRecursive(yearFolder, songName)
 
             If foundPath <> "" Then
                 FindSongPpt = foundPath
                 Exit Function
             End If
+        End If
+    Next
+
+    ' Third priority: root-level folders whose names are not integers.
+    On Error Resume Next
+    Set rootFolder = fso.GetFolder(worshipDataRoot)
+
+    If Err.Number <> 0 Or rootFolder Is Nothing Then
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    On Error GoTo 0
+
+    For Each childFolder In rootFolder.SubFolders
+
+        If Not IsIntegerFolderName(childFolder.Name) Then
+            foundPath = FindMatchingPptxRecursive(childFolder.Path, songName)
+
+            If foundPath <> "" Then
+                FindSongPpt = foundPath
+                Exit Function
+            End If
+        End If
+    Next
+End Function
+
+' Finds the first direct .pptx file whose base name contains songName.
+Function FindMatchingPptxDirect(ByVal folderPath, ByVal songName)
+
+    Dim folderObject
+    Dim fileObject
+
+    FindMatchingPptxDirect = ""
+
+    On Error Resume Next
+    Set folderObject = fso.GetFolder(folderPath)
+
+    If Err.Number <> 0 Or folderObject Is Nothing Then
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    On Error GoTo 0
+
+    For Each fileObject In folderObject.Files
+        If IsMatchingSongPptx(fileObject.Name, songName) Then
+            FindMatchingPptxDirect = fileObject.Path
+            Exit Function
+        End If
+    Next
+End Function
+
+' Recursively finds the first .pptx file whose base name contains songName.
+' Skips junctions, symbolic links, and other reparse-point folders.
+Function FindMatchingPptxRecursive(ByVal folderPath, ByVal songName)
+
+    Dim folderObject
+    Dim fileObject
+    Dim subFolderObject
+    Dim foundPath
+    Dim attributes
+
+    FindMatchingPptxRecursive = ""
+
+    On Error Resume Next
+    Set folderObject = fso.GetFolder(folderPath)
+
+    If Err.Number <> 0 Or folderObject Is Nothing Then
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    On Error GoTo 0
+
+    For Each fileObject In folderObject.Files
+        If IsMatchingSongPptx(fileObject.Name, songName) Then
+            FindMatchingPptxRecursive = fileObject.Path
+            Exit Function
+        End If
+    Next
+
+    For Each subFolderObject In folderObject.SubFolders
+
+        On Error Resume Next
+        attributes = subFolderObject.Attributes
+
+        If Err.Number = 0 Then
+            If (attributes And FILE_ATTRIBUTE_REPARSE_POINT) = 0 Then
+
+                On Error GoTo 0
+
+                foundPath = FindMatchingPptxRecursive( _
+                    subFolderObject.Path, _
+                    songName _
+                )
+
+                If foundPath <> "" Then
+                    FindMatchingPptxRecursive = foundPath
+                    Exit Function
+                End If
+
+            Else
+                Err.Clear
+                On Error GoTo 0
+            End If
+        Else
+            Err.Clear
+            On Error GoTo 0
+        End If
+    Next
+End Function
+
+' True only when fileName is a PPTX and its name without extension
+' contains songName anywhere, case-insensitively.
+Function IsMatchingSongPptx(ByVal fileName, ByVal songName)
+
+    Dim baseName
+
+    IsMatchingSongPptx = False
+
+    If LCase(fso.GetExtensionName(fileName)) <> "pptx" Then
+        Exit Function
+    End If
+
+    baseName = fso.GetBaseName(fileName)
+
+    If InStr(1, baseName, songName, vbTextCompare) > 0 Then
+        IsMatchingSongPptx = True
+    End If
+End Function
+
+' Returns True only if the complete folder name consists of decimal digits.
+' Examples:
+'   "2026"  -> True
+'   "0026"  -> True
+'   "2026a" -> False
+'   "2026 " -> False
+'   "詩歌"  -> False
+Function IsIntegerFolderName(ByVal folderName)
+
+    Dim re
+
+    IsIntegerFolderName = False
+
+    Set re = CreateObject("VBScript.RegExp")
+    re.Global = False
+    re.IgnoreCase = False
+    re.Pattern = "^\d+$"
+
+    IsIntegerFolderName = re.Test(CStr(folderName))
+End Function
+
+' Recursively searches only PPTX files for an exact case-insensitive filename.
+' It skips junctions, symbolic links, and other reparse-point folders.
+Function FindFileRecursivePptxOnly(ByVal folderPath, ByVal requestedFileName)
+
+    Dim folderObject
+    Dim fileObject
+    Dim subFolderObject
+    Dim foundPath
+    Dim attributes
+
+    FindFileRecursivePptxOnly = ""
+
+    On Error Resume Next
+
+    Set folderObject = fso.GetFolder(folderPath)
+
+    If Err.Number <> 0 Or folderObject Is Nothing Then
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    On Error GoTo 0
+
+    ' Check PPTX files directly inside this folder first.
+    For Each fileObject In folderObject.Files
+
+        If LCase(fso.GetExtensionName(fileObject.Name)) = "pptx" Then
+            If StrComp(fileObject.Name, requestedFileName, 1) = 0 Then
+                FindFileRecursivePptxOnly = fileObject.Path
+                Exit Function
+            End If
+        End If
+    Next
+
+    ' Then recursively search ordinary child folders only.
+    For Each subFolderObject In folderObject.SubFolders
+
+        On Error Resume Next
+
+        attributes = subFolderObject.Attributes
+
+        If Err.Number = 0 Then
+
+            If (attributes And FILE_ATTRIBUTE_REPARSE_POINT) = 0 Then
+
+                On Error GoTo 0
+
+                foundPath = FindFileRecursivePptxOnly( _
+                    subFolderObject.Path, _
+                    requestedFileName _
+                )
+
+                If foundPath <> "" Then
+                    FindFileRecursivePptxOnly = foundPath
+                    Exit Function
+                End If
+
+            Else
+                Err.Clear
+                On Error GoTo 0
+            End If
+
+        Else
+            Err.Clear
+            On Error GoTo 0
         End If
     Next
 End Function
@@ -1766,6 +2003,9 @@ End Sub
 ' ===============================================================
 ' Chinese filenames and Chinese messages
 ' ===============================================================
+Function txtPrefix()
+    txtPrefix = ChrW(&H5167) & ChrW(&H5BB9) & "-"
+End Function
 
 Function CNRead()
     CNRead = ChrW(&H8B80) & ChrW(&H7D93)
