@@ -25,16 +25,16 @@ Const GUARD_MIN_TEXT_BYTES = 4
 Const GUARD_KILL_ENABLED = True
 Const GUARD_ORPHAN_MIN_AGE_MIN = 60
 
-Dim fso, shell, rootFolder, templatesFolder, copyFolder
+Dim fso, shell, rootFolder, templatesFolder, dynamicFolder, standardFolder
 Dim outputFolder, folderName
 
 Dim masterTemplate, refreshScript
-Dim readingTemplate, scripturesTemplate, callResponseTemplate, songShortcut
+Dim readingTemplate, scripturesTemplate, callResponseTemplate, songFoldersFile
 Dim readingTextFile, scripturesTextFile, callResponseTextFile
 Dim readingOutputFile, scripturesOutputFile, callResponseOutputFile
 
 Dim songsInput, songNames, songName
-Dim songRootPath, songFilePath
+Dim songRootPaths(), songRootCount, songFilePath
 Dim missingSongs, i
 
 Dim ppt, errText
@@ -55,7 +55,8 @@ On Error GoTo 0
 
 rootFolder = fso.GetParentFolderName(WScript.ScriptFullName)
 templatesFolder = fso.BuildPath(rootFolder, "templates")
-copyFolder = fso.BuildPath(templatesFolder, "worship-files")
+dynamicFolder = fso.BuildPath(templatesFolder, "dynamic")
+standardFolder = fso.BuildPath(templatesFolder, "standard")
 
 readingTextFile = txtPrefix() & CNRead() & ".txt"
 scripturesTextFile = txtPrefix() & CNScriptures() & ".txt"
@@ -65,14 +66,14 @@ readingOutputFile = CNRead() & ".pptx"
 scripturesOutputFile = CNScriptures() & ".pptx"
 callResponseOutputFile = CNCallResponse() & ".pptx"
 
-readingTemplate = fso.BuildPath(templatesFolder, CNRead() & "-template.pptx")
-scripturesTemplate = fso.BuildPath(templatesFolder, CNScriptures() & "-template.pptx")
-callResponseTemplate = fso.BuildPath(templatesFolder, CNCallResponse() & "-template.pptx")
+readingTemplate = fso.BuildPath(dynamicFolder, CNRead() & "-template.pptx")
+scripturesTemplate = fso.BuildPath(dynamicFolder, CNScriptures() & "-template.pptx")
+callResponseTemplate = fso.BuildPath(dynamicFolder, CNCallResponse() & "-template.pptx")
 
-masterTemplate = fso.BuildPath(copyFolder, "master.pptx")
-refreshScript = fso.BuildPath(copyFolder, "refresh-master.vbs")
+masterTemplate = fso.BuildPath(standardFolder, "master.pptx")
+refreshScript = fso.BuildPath(standardFolder, "refresh-master.vbs")
 
-songShortcut = fso.BuildPath(templatesFolder, "songs-folder.lnk")
+songFoldersFile = fso.BuildPath(rootFolder, "song-folders.txt")
 
 ' [ADDED] Embedded pre-run guard runs before any user input.
 PreRunGuard
@@ -85,32 +86,36 @@ If Not fso.FolderExists(templatesFolder) Then
     Fail MsgtemplatesMissing()
 End If
 
-If Not fso.FolderExists(copyFolder) Then
-    Fail MsgCopyFolderMissing()
+If Not fso.FolderExists(dynamicFolder) Then
+    Fail MsgDynamicFolderMissing()
+End If
+
+If Not fso.FolderExists(standardFolder) Then
+    Fail MsgStandardFolderMissing()
 End If
 
 If Not fso.FileExists(masterTemplate) Then
-    Fail MsgFileMissing("templates\worship-files\master.pptx")
+    Fail MsgFileMissing("templates\standard\master.pptx")
 End If
 
 If Not fso.FileExists(refreshScript) Then
-    Fail MsgFileMissing("templates\worship-files\refresh-master.vbs")
+    Fail MsgFileMissing("templates\standard\refresh-master.vbs")
 End If
 
 If Not fso.FileExists(readingTemplate) Then
-    Fail MsgFileMissing("templates\" & CNRead() & "-template.pptx")
+    Fail MsgFileMissing("templates\dynamic\" & CNRead() & "-template.pptx")
 End If
 
 If Not fso.FileExists(scripturesTemplate) Then
-    Fail MsgFileMissing("templates\" & CNScriptures() & "-template.pptx")
+    Fail MsgFileMissing("templates\dynamic\" & CNScriptures() & "-template.pptx")
 End If
 
 If Not fso.FileExists(callResponseTemplate) Then
-    Fail MsgFileMissing("templates\" & CNCallResponse() & "-template.pptx")
+    Fail MsgFileMissing("templates\dynamic\" & CNCallResponse() & "-template.pptx")
 End If
 
-If Not fso.FileExists(songShortcut) Then
-    Fail MsgFileMissing("templates\songs-folder.lnk")
+If Not fso.FileExists(songFoldersFile) Then
+    Fail MsgFileMissing("song-folders.txt")
 End If
 
 If Not fso.FileExists(fso.BuildPath(rootFolder, readingTextFile)) Then
@@ -162,10 +167,12 @@ End If
 
 songNames = Split(songsInput, ",")
 
-songRootPath = GetShortcutTarget(songShortcut)
+If Not ReadSongFolders(songFoldersFile, songRootPaths, songRootCount, errText) Then
+    Fail MsgCannotReadSongFolders() & vbCrLf & errText
+End If
 
-If songRootPath = "" Or Not fso.FolderExists(songRootPath) Then
-    Fail MsgSongRootMissing()
+If songRootCount = 0 Then
+    Fail MsgNoValidSongFolders() & vbCrLf & songFoldersFile
 End If
 
 ' ---------------------------------------------------------------
@@ -205,7 +212,7 @@ If Err.Number <> 0 Then
     errText = Err.Description
     Err.Clear
 Else
-    CopyDirectFiles copyFolder, outputFolder, errText
+    CopyDirectFiles standardFolder, outputFolder, errText
 End If
 
 On Error GoTo 0
@@ -219,8 +226,6 @@ End If
 
 ' ---------------------------------------------------------------
 ' Create call-and-response PPTX file.
-' Output naming:
-'   02_宣召及啟應.pptx
 '
 ' Template Selection Pane names required:
 '   Slide 1: CALL_SCRIPTURE_1
@@ -243,9 +248,6 @@ End If
 
 ' ---------------------------------------------------------------
 ' Create scripture PPTX files.
-' Output naming e.g.:
-'   30_經訓.pptx
-'   40_讀經.pptx
 ' ---------------------------------------------------------------
 
 If Not CreateScripturePpt( _
@@ -281,8 +283,6 @@ End If
 ' Output naming e.g.:
 '   20_<song title>.pptx
 '
-' Missing songs receive:
-'   (找不到) <song title>.txt
 ' ---------------------------------------------------------------
 
 missingSongs = ""
@@ -291,7 +291,7 @@ For i = 0 To UBound(songNames)
     songName = Trim(songNames(i))
 
     If songName <> "" Then
-        songFilePath = FindSongPpt(songRootPath, songName)
+        songFilePath = FindSongPptInRoots(songRootPaths, songRootCount, songName)
 
         If songFilePath <> "" Then
             errText = ""
@@ -386,60 +386,110 @@ End If
 ' [ADDED] End-of-run cleanup after the normal finish.
 EndOfRunCleanup
 
+Function ReadSongFolders(ByVal filePath, ByRef folderPaths, ByRef folderCount, ByRef errorMessage)
+
+    Dim stream
+    Dim text
+    Dim rawLines
+    Dim i
+    Dim candidatePath
+
+    ReadSongFolders = False
+    errorMessage = ""
+    folderCount = 0
+    ReDim folderPaths(0)
+
+    On Error Resume Next
+    Set stream = CreateObject("ADODB.Stream")
+    stream.Type = 2
+    stream.Charset = "utf-8"
+    stream.Open
+    stream.LoadFromFile filePath
+    text = stream.ReadText
+    stream.Close
+
+    If Err.Number <> 0 Then
+        errorMessage = Err.Description
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    On Error GoTo 0
+
+    text = Replace(text, ChrW(&HFEFF), "")
+    text = Replace(text, vbCrLf, vbLf)
+    text = Replace(text, vbCr, vbLf)
+    rawLines = Split(text, vbLf)
+
+    For i = 0 To UBound(rawLines)
+        candidatePath = Trim(rawLines(i))
+
+        If candidatePath <> "" Then
+            If fso.FolderExists(candidatePath) Then
+                ReDim Preserve folderPaths(folderCount)
+                folderPaths(folderCount) = candidatePath
+                folderCount = folderCount + 1
+            End If
+        End If
+    Next
+
+    ReadSongFolders = True
+End Function
+
+Function FindSongPptInRoots(ByRef rootPaths, ByVal rootCount, ByVal songName)
+
+    Dim i
+    Dim foundPath
+
+    FindSongPptInRoots = ""
+
+    For i = 0 To rootCount - 1
+        foundPath = FindSongPpt(CStr(rootPaths(i)), songName)
+
+        If foundPath <> "" Then
+            FindSongPptInRoots = foundPath
+            Exit Function
+        End If
+    Next
+End Function
+
 ' ===============================================================
 ' Song search
 ' ===============================================================
-' Replace the existing FindSongPpt function with this version.
-' Add the two helper functions below it: SearchImmediateNonYearFolders
-' and FindFileRecursivePptxOnly.
-'
-' Search order:
-' 1. <root>\詩歌\<requested filename> (direct files only)
-' 2. Integer-named root folders interpreted as years, newest to oldest;
-'    recursively search for the requested filename.
-' 3. Non-integer-named root folders; recursively search PPTX files only
-'    for the requested filename.
-'
-' The requested filename is still an exact case-insensitive match.
+' Search order for each path listed in song-folders.txt:
+' 1. Direct .pptx files inside the listed path itself.
+' 2. Only when nothing matches there, every subfolder of that root
+'    is enumerated in the exact order Windows returns them
+'    (no re-sorting, no year-folder priority).
+' 3. Each subfolder is searched direct .pptx files first; only when
+'    nothing matches does the search recurse one level deeper,
+'    repeating the same files-first-then-subfolders rule.
+' 4. The first .pptx whose file name contains the requested song
+'    name wins and the search stops immediately.
 
 Function FindSongPpt(ByVal worshipDataRoot, ByVal songName)
 
-    Dim songFolder
-    Dim yearValue
-    Dim yearFolder
     Dim rootFolder
     Dim childFolder
     Dim foundPath
 
     FindSongPpt = ""
 
-    ' First priority: direct PPTX files in <root>\詩歌.
-    songFolder = fso.BuildPath(worshipDataRoot, CNSongs())
-
-    foundPath = FindMatchingPptxDirect(songFolder, songName)
+    ' Step 1: direct .pptx files inside the listed path itself.
+    foundPath = FindMatchingPptxDirect( _
+        worshipDataRoot, _
+        songName _
+    )
 
     If foundPath <> "" Then
         FindSongPpt = foundPath
         Exit Function
     End If
 
-    ' Second priority: integer-named year folders, newest to oldest.
-    For yearValue = MinNumber(Year(Date), MAX_SEARCH_YEAR) _
-                    To MIN_SEARCH_YEAR Step -1
-
-        yearFolder = fso.BuildPath(worshipDataRoot, CStr(yearValue))
-
-        If fso.FolderExists(yearFolder) Then
-            foundPath = FindMatchingPptxRecursive(yearFolder, songName)
-
-            If foundPath <> "" Then
-                FindSongPpt = foundPath
-                Exit Function
-            End If
-        End If
-    Next
-
-    ' Third priority: root-level folders whose names are not integers.
+    ' Steps 2-5: enumerate every subfolder in the order Windows
+    ' returns them; FindMatchingPptxRecursive searches each one
+    ' direct files first, then recurses downward with the same rule.
     On Error Resume Next
     Set rootFolder = fso.GetFolder(worshipDataRoot)
 
@@ -453,13 +503,14 @@ Function FindSongPpt(ByVal worshipDataRoot, ByVal songName)
 
     For Each childFolder In rootFolder.SubFolders
 
-        If Not IsIntegerFolderName(childFolder.Name) Then
-            foundPath = FindMatchingPptxRecursive(childFolder.Path, songName)
+        foundPath = FindMatchingPptxRecursive( _
+            childFolder.Path, _
+            songName _
+        )
 
-            If foundPath <> "" Then
-                FindSongPpt = foundPath
-                Exit Function
-            End If
+        If foundPath <> "" Then
+            FindSongPpt = foundPath
+            Exit Function
         End If
     Next
 End Function
@@ -577,7 +628,6 @@ End Function
 '   "0026"  -> True
 '   "2026a" -> False
 '   "2026 " -> False
-'   "詩歌"  -> False
 Function IsIntegerFolderName(ByVal folderName)
 
     Dim re
@@ -1043,7 +1093,6 @@ Function MakePageBreaks( _
 End Function
 
 ' Wraps a leading verse number in square brackets:
-'   "98 你的命令..."  ->  "[98] 你的命令..."
 ' Lines that already start with "[" are returned unchanged.
 Function WrapVerseNumber(ByVal lineValue)
 
@@ -1055,7 +1104,6 @@ Function WrapVerseNumber(ByVal lineValue)
     trimmedLine = Trim(lineValue)
     WrapVerseNumber = trimmedLine
 
-    ' Already wrapped, e.g. "[98] text" — leave as is.
     If Left(trimmedLine, 1) = "[" Then
         Exit Function
     End If
@@ -1279,7 +1327,7 @@ End Function
 ' width (in points). Both "Before text" and "Hanging by" are set to
 ' this value, and a left tab stop is placed at the same position.
 '
-'   1 digit   -> 2.82 cm    ' these are based on 40pt 標楷體
+'   1 digit   -> 2.82 cm
 '   2 digits  -> 3.53 cm
 '   3 digits  -> 4.23 cm
 Function IndentPointsForVerseDigits(ByVal digits)
@@ -1376,7 +1424,6 @@ Function CreateCallResponsePpt( _
         Exit Function
     End If
 
-    ' Create one 啟應 slide per pair.
     If hasCallResponse Then
         For pairIndex = 2 To pairCount
             Set duplicateRange = pres.Slides(2).Duplicate
@@ -1384,7 +1431,6 @@ Function CreateCallResponsePpt( _
         Next
     End If
 
-    ' Slide 1: 宣召.
     If hasCallScripture Then
         detailError = ""
 
@@ -1402,7 +1448,6 @@ Function CreateCallResponsePpt( _
         End If
     End If
 
-    ' Slides 2 onward: one full 啟 / 應 pair per slide.
     If hasCallResponse Then
         For pairIndex = 1 To pairCount
 
@@ -1511,8 +1556,6 @@ Function SetTextInNamedShape( _
     SetTextInNamedShape = True
 End Function
 
-' Writes one full 啟 / 應 pair into CALL_RESPONSE_1.
-' The complete 應： line becomes purple.
 Function SetCallResponseText( _
     ByVal slideObject, _
     ByVal shapeName, _
@@ -1616,6 +1659,7 @@ Function ReadCallResponseFile( _
     Dim sawCallSection, sawResponseSection
     Dim pendingCall, hasPendingCall
     Dim pendingBlankLine
+    Dim pendingBlankLine2
 
     ReadCallResponseFile = False
 
@@ -1631,6 +1675,7 @@ Function ReadCallResponseFile( _
     pendingCall = ""
     hasPendingCall = False
     pendingBlankLine = False
+    pendingBlankLine2 = False
 
     ReDim callLines(0)
     ReDim responseLines(0)
@@ -1663,8 +1708,6 @@ Function ReadCallResponseFile( _
 
     ' section:
     ' 0 = before / outside sections
-    ' 1 = [宣召]
-    ' 2 = [啟應]
     For i = 0 To UBound(rawLines)
 
         rawLine = rawLines(i)
@@ -1690,10 +1733,10 @@ Function ReadCallResponseFile( _
 
             section = 2
             sawResponseSection = True
+            pendingBlankLine2 = False
 
         ElseIf section = 1 Then
 
-            ' Keep empty lines in [宣召].
             ' A blank source line is remembered, then converted into
             ' TWO line breaks before the next non-empty line. This
             ' produces one visible empty paragraph in PowerPoint.
@@ -1722,8 +1765,19 @@ Function ReadCallResponseFile( _
 
         ElseIf section = 2 Then
 
-            ' Ignore blank separator lines in [啟應].
-            If trimmedLine <> "" Then
+            If trimmedLine = "" Then
+
+                ' A blank source line inside [啟應] is only meaningful when
+                ' there is already an accumulated 啟：/應： line to attach
+                ' trailing free text to (see the Else branch below). It is
+                ' remembered the same way as in the [宣召] section and
+                ' converted into TWO line breaks before the next non-empty
+                ' line, producing one visible empty paragraph in PowerPoint.
+                If pairCount > 0 Or hasPendingCall Then
+                    pendingBlankLine2 = True
+                End If
+
+            Else
 
                 If Left(trimmedLine, 2) = CNCallPrefix() Or _
                    Left(trimmedLine, 2) = CNCallPrefixHalf() Then
@@ -1741,6 +1795,7 @@ Function ReadCallResponseFile( _
                     End If
 
                     hasPendingCall = True
+                    pendingBlankLine2 = False
 
                 ElseIf Left(trimmedLine, 2) = CNResponsePrefix() Or _
                        Left(trimmedLine, 2) = CNResponsePrefixHalf() Then
@@ -1765,10 +1820,42 @@ Function ReadCallResponseFile( _
 
                     pendingCall = ""
                     hasPendingCall = False
+                    pendingBlankLine2 = False
 
                 Else
-                    errorMessage = MsgCallBadLine()
-                    Exit Function
+
+                    ' A line that does not start with 啟：/應： (for example
+                    ' a trailing scripture citation such as "(詩篇一〇三
+                    ' 2-3,8-12)") is treated the same way free-form lines are
+                    ' treated in the [宣召] section: it is appended to
+                    ' whichever 啟：/應： text was most recently active,
+                    ' with the same blank-line-becomes-double-break rule.
+                    If pairCount > 0 Then
+
+                        If pendingBlankLine2 Then
+                            responseLines(pairCount) = responseLines(pairCount) & _
+                                                        vbCrLf & vbCrLf & Trim(rawLine)
+                        Else
+                            responseLines(pairCount) = responseLines(pairCount) & _
+                                                        vbCrLf & Trim(rawLine)
+                        End If
+
+                        pendingBlankLine2 = False
+
+                    ElseIf hasPendingCall Then
+
+                        If pendingBlankLine2 Then
+                            pendingCall = pendingCall & vbCrLf & vbCrLf & Trim(rawLine)
+                        Else
+                            pendingCall = pendingCall & vbCrLf & Trim(rawLine)
+                        End If
+
+                        pendingBlankLine2 = False
+
+                    Else
+                        errorMessage = MsgCallBadLine()
+                        Exit Function
+                    End If
                 End If
             End If
         End If
@@ -1876,23 +1963,6 @@ End Function
 ' Path and validation helpers
 ' ===============================================================
 
-Function GetShortcutTarget(ByVal shortcutPath)
-
-    Dim shortcutObject
-
-    On Error Resume Next
-
-    Set shortcutObject = shell.CreateShortcut(shortcutPath)
-    GetShortcutTarget = shortcutObject.TargetPath
-
-    If Err.Number <> 0 Then
-        Err.Clear
-        GetShortcutTarget = ""
-    End If
-
-    On Error GoTo 0
-End Function
-
 Function IsValidFolderName(ByVal value)
 
     Dim invalidCharacters, i
@@ -1977,8 +2047,6 @@ Sub RemoveTxtFilesWithMatchingPptx(ByVal folderPath)
     On Error GoTo 0
 
     ' The folder is newly created, so deletion is safe:
-    ' only files such as 02_宣召及啟應.txt are removed when
-    ' 02_宣召及啟應.pptx is present in that same folder.
     For Each fileObject In folderObject.Files
 
         If LCase(fso.GetExtensionName(fileObject.Name)) = "txt" Then
@@ -2123,6 +2191,28 @@ Function MsgSongExample()
                      ChrW(&H8A69) & ChrW(&H6B4C) & "C"
 End Function
 
+Function MsgDynamicFolderMissing()
+    MsgDynamicFolderMissing = ChrW(&H627E) & ChrW(&H4E0D) & ChrW(&H5230) & _
+                              " templates\dynamic " & ChrW(&H8CC7) & ChrW(&H6599) & ChrW(&H593E) & ChrW(&H3002)
+End Function
+
+Function MsgStandardFolderMissing()
+    MsgStandardFolderMissing = ChrW(&H627E) & ChrW(&H4E0D) & ChrW(&H5230) & _
+                               " templates\standard " & ChrW(&H8CC7) & ChrW(&H6599) & ChrW(&H593E) & ChrW(&H3002)
+End Function
+
+Function MsgCannotReadSongFolders()
+    MsgCannotReadSongFolders = ChrW(&H7121) & ChrW(&H6CD5) & ChrW(&H8B80) & ChrW(&H53D6) & _
+                                " song-folders.txt" & ChrW(&HFF1A)
+End Function
+
+Function MsgNoValidSongFolders()
+    MsgNoValidSongFolders = "song-folders.txt " & ChrW(&H5167) & ChrW(&H6C92) & ChrW(&H6709) & _
+                             ChrW(&H4EFB) & ChrW(&H4F55) & ChrW(&H6709) & ChrW(&H6548) & ChrW(&H7684) & _
+                             ChrW(&H8A69) & ChrW(&H6B4C) & ChrW(&H8CC7) & ChrW(&H6599) & ChrW(&H593E) & _
+                             ChrW(&H8DEF) & ChrW(&H5F91) & ChrW(&H3002)
+End Function
+
 Function MsgSongRootMissing()
     MsgSongRootMissing = ChrW(&H627E) & ChrW(&H4E0D) & ChrW(&H5230) & _
                          " songs-folder.lnk " & _
@@ -2142,7 +2232,7 @@ End Function
 Function MsgCannotCopyFixedFiles()
     MsgCannotCopyFixedFiles = ChrW(&H7121) & ChrW(&H6CD5) & _
                               ChrW(&H8907) & ChrW(&H88FD) & _
-                              " worship-files " & _
+                              " templates\standard " & _
                               ChrW(&H5167) & ChrW(&H7684) & _
                               ChrW(&H6A94) & ChrW(&H6848) & _
                               ChrW(&HFF1A)
