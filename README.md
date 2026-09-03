@@ -151,7 +151,7 @@ refresh-master.vbs
 
 ### 查看或修改
 
-> [!IMPORTANT]
+> [!TIP]
 檢閱 `.vbs` 時**不要直接雙擊**，Windows 會立即執行它。
 
 1. 在 `.vbs` 檔案按右鍵。
