@@ -9,6 +9,10 @@ Const msoFalse = 0
 Const msoTrue = -1
 
 Const ppAutoSizeNone = 0
+
+' [ADDED] Vertical gap, in PowerPoint points, between an AutoFit text
+' body and its source. Used by both [宣召] and [啟應].
+Const SCRIPTURE_SOURCE_GAP = 3
 Const msoAutoSizeNone = 0
 
 Const MAX_CHARS_PER_SLIDE = 110
@@ -1434,15 +1438,14 @@ Function CreateCallResponsePpt( _
     If hasCallScripture Then
         detailError = ""
 
-        If Not SetTextInNamedShape( _
+        If Not SetCallScriptureTextAndSource( _
             pres.Slides(1), _
-            "CALL_SCRIPTURE_1", _
             callScripture, _
             detailError _
         ) Then
             pres.Close
             errorMessage = MsgTemplateMissingNamedShape( _
-                "CALL_SCRIPTURE_1" _
+                "SCRIPTURE_TEXT_1 / SCRIPTURE_SOURCE_1" _
             ) & vbCrLf & detailError
             Exit Function
         End If
@@ -1459,16 +1462,14 @@ Function CreateCallResponsePpt( _
 
             detailError = ""
 
-            If Not SetCallResponseText( _
+            If Not SetCallResponseTextAndSource( _
                 slideObject, _
-                "CALL_RESPONSE_1", _
                 callResponseText, _
-                Len(CNCallPrefix() & callLines(pairIndex) & vbCrLf), _
                 detailError _
             ) Then
                 pres.Close
                 errorMessage = MsgTemplateMissingNamedShape( _
-                    "CALL_RESPONSE_1" _
+                    "CALL_RESPONSE_TEXT_1 / CALL_RESPONSE_SOURCE_1" _
                 ) & vbCrLf & detailError
                 Exit Function
             End If
@@ -1505,45 +1506,188 @@ End Function
 
 ' Gets a text box by its exact PowerPoint Selection Pane name and
 ' replaces all its text. It does not search for placeholder strings.
-Function SetTextInNamedShape( _
+ ' [CHANGED] Writes [宣召] into two independent template text boxes:
+' SCRIPTURE_TEXT_1 ({{SCRIPTURE_TEXT}}) and
+' SCRIPTURE_SOURCE_1 ({{SCRIPTURE_SOURCE}}).
+Function SetCallScriptureTextAndSource( _
     ByVal slideObject, _
-    ByVal shapeName, _
-    ByVal replacement, _
+    ByVal fullText, _
     ByRef errorMessage _
 )
 
-    Dim shapeObject
+    SetCallScriptureTextAndSource = SetTextAndSourceShapes( _
+        slideObject, _
+        "SCRIPTURE_TEXT_1", _
+        "{{SCRIPTURE_TEXT}}", _
+        "SCRIPTURE_SOURCE_1", _
+        "{{SCRIPTURE_SOURCE}}", _
+        fullText, _
+        errorMessage _
+    )
+End Function
 
-    SetTextInNamedShape = False
+' Splits text using the specified source rule: final non-empty line,
+' with an earlier line break, and containing at least one digit 0-9.
+Sub SplitCallScriptureSource(ByVal fullText, ByRef bodyText, ByRef sourceText)
+    Dim normalized, parts, lastIndex, candidate, bodyLastIndex, i, body
+
+    bodyText = fullText
+    sourceText = ""
+    normalized = Replace(fullText, vbCrLf, vbLf)
+    normalized = Replace(normalized, vbCr, vbLf)
+    parts = Split(normalized, vbLf)
+
+    lastIndex = UBound(parts)
+    Do While lastIndex >= 0 And Trim(parts(lastIndex)) = ""
+        lastIndex = lastIndex - 1
+    Loop
+    If lastIndex <= 0 Then Exit Sub
+
+    candidate = Trim(parts(lastIndex))
+    If Not ContainsArabicDigit(candidate) Then Exit Sub
+
+    bodyLastIndex = lastIndex - 1
+    Do While bodyLastIndex >= 0 And Trim(parts(bodyLastIndex)) = ""
+        bodyLastIndex = bodyLastIndex - 1
+    Loop
+    If bodyLastIndex < 0 Then Exit Sub
+
+    body = ""
+    For i = 0 To bodyLastIndex
+        If body = "" Then
+            body = parts(i)
+        Else
+            body = body & vbCrLf & parts(i)
+        End If
+    Next
+
+    bodyText = body
+    sourceText = candidate
+End Sub
+
+Function ContainsArabicDigit(ByVal value)
+    Dim i, ch
+    ContainsArabicDigit = False
+    For i = 1 To Len(value)
+        ch = Mid(value, i, 1)
+        If ch >= "0" And ch <= "9" Then
+            ContainsArabicDigit = True
+            Exit Function
+        End If
+    Next
+End Function
+
+' Generic two-Shape writer. body shape retains its template AutoFit and
+' left alignment. source shape retains its template right alignment and
+' is placed directly below bodyShape's actual height plus the gap.
+Function SetTextAndSourceShapes( _
+    ByVal slideObject, _
+    ByVal bodyShapeName, _
+    ByVal bodyPlaceholder, _
+    ByVal sourceShapeName, _
+    ByVal sourcePlaceholder, _
+    ByVal fullText, _
+    ByRef errorMessage _
+)
+
+    Dim bodyShape, sourceShape, bodyText, sourceText, sourceOriginalTop
+
+    SetTextAndSourceShapes = False
     errorMessage = ""
 
     On Error Resume Next
-
-    Set shapeObject = slideObject.Shapes(shapeName)
-
-    If Err.Number <> 0 Or shapeObject Is Nothing Then
-        errorMessage = MsgNamedShapeNotFound(shapeName)
+    Set bodyShape = slideObject.Shapes(bodyShapeName)
+    If Err.Number <> 0 Or bodyShape Is Nothing Then
+        errorMessage = MsgNamedShapeNotFound(bodyShapeName)
         Err.Clear
         On Error GoTo 0
         Exit Function
     End If
 
-    If shapeObject.HasTextFrame <> msoTrue Then
-        errorMessage = MsgNamedShapeNoText(shapeName)
+    Set sourceShape = slideObject.Shapes(sourceShapeName)
+    If Err.Number <> 0 Or sourceShape Is Nothing Then
+        errorMessage = MsgNamedShapeNotFound(sourceShapeName)
+        Err.Clear
         On Error GoTo 0
         Exit Function
     End If
 
-    shapeObject.TextFrame.AutoSize = ppAutoSizeNone
-    shapeObject.TextFrame2.AutoSize = msoAutoSizeNone
-    shapeObject.TextFrame.VerticalAnchor = 1
+    If bodyShape.HasTextFrame <> msoTrue Then
+        errorMessage = MsgNamedShapeNoText(bodyShapeName)
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    If sourceShape.HasTextFrame <> msoTrue Then
+        errorMessage = MsgNamedShapeNoText(sourceShapeName)
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    sourceOriginalTop = sourceShape.Top
+    If Err.Number <> 0 Then
+        errorMessage = Err.Description
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+    On Error GoTo 0
+
+    SplitCallScriptureSource fullText, bodyText, sourceText
+
+    If Not ReplaceExactPlaceholderText(bodyShape, bodyPlaceholder, bodyText, errorMessage) Then Exit Function
+
+    If sourceText <> "" Then
+        If Not ReplaceExactPlaceholderText(sourceShape, sourcePlaceholder, sourceText, errorMessage) Then Exit Function
+
+        On Error Resume Next
+        sourceShape.Visible = msoTrue
+        sourceShape.Top = CDbl(bodyShape.Top) + CDbl(bodyShape.Height) + SCRIPTURE_SOURCE_GAP
+        If Err.Number <> 0 Then
+            errorMessage = Err.Description
+            Err.Clear
+            On Error GoTo 0
+            Exit Function
+        End If
+        On Error GoTo 0
+    Else
+        On Error Resume Next
+        sourceShape.TextFrame.TextRange.Text = ""
+        sourceShape.Top = sourceOriginalTop
+        sourceShape.Visible = msoFalse
+        If Err.Number <> 0 Then
+            errorMessage = Err.Description
+            Err.Clear
+            On Error GoTo 0
+            Exit Function
+        End If
+        On Error GoTo 0
+    End If
+
+    SetTextAndSourceShapes = True
+End Function
+
+Function ReplaceExactPlaceholderText( _
+    ByVal shapeObject, _
+    ByVal placeholder, _
+    ByVal replacement, _
+    ByRef errorMessage _
+)
+
+    ReplaceExactPlaceholderText = False
+    errorMessage = ""
+
+    On Error Resume Next
+    If Trim(shapeObject.TextFrame.TextRange.Text) <> placeholder Then
+        errorMessage = "placeholder " & placeholder & " " & ChrW(&H4E0D) & ChrW(&H5B58) & ChrW(&H5728)
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
 
     shapeObject.TextFrame.TextRange.Text = replacement
-
-    shapeObject.TextFrame.AutoSize = ppAutoSizeNone
-    shapeObject.TextFrame2.AutoSize = msoAutoSizeNone
-    shapeObject.TextFrame.VerticalAnchor = 1
-
     If Err.Number <> 0 Then
         errorMessage = Err.Description
         Err.Clear
@@ -1552,67 +1696,83 @@ Function SetTextInNamedShape( _
     End If
 
     On Error GoTo 0
-
-    SetTextInNamedShape = True
+    ReplaceExactPlaceholderText = True
 End Function
 
-Function SetCallResponseText( _
+ ' [CHANGED] Writes [啟應] into the two new Shapes:
+' CALL_RESPONSE_TEXT_1 -> {{CALL_RESPONSE_TEXT}}
+' CALL_RESPONSE_SOURCE_1 -> {{CALL_RESPONSE_SOURCE}}
+Function SetCallResponseTextAndSource( _
     ByVal slideObject, _
-    ByVal shapeName, _
-    ByVal replacement, _
-    ByVal responseStartPosition, _
+    ByVal fullText, _
     ByRef errorMessage _
 )
 
+    Const BODY_SHAPE_NAME = "CALL_RESPONSE_TEXT_1"
+    Const BODY_PLACEHOLDER = "{{CALL_RESPONSE_TEXT}}"
+    Const SOURCE_SHAPE_NAME = "CALL_RESPONSE_SOURCE_1"
+    Const SOURCE_PLACEHOLDER = "{{CALL_RESPONSE_SOURCE}}"
     Const PURPLE_RED = 112
     Const PURPLE_GREEN = 48
     Const PURPLE_BLUE = 160
 
-    Dim shapeObject
-    Dim responseLength
+    Dim bodyShape
+    Dim foundRange
+    Dim colorStart, colorLength
 
-    SetCallResponseText = False
+    SetCallResponseTextAndSource = False
     errorMessage = ""
 
+    If Not SetTextAndSourceShapes( _
+        slideObject, _
+        BODY_SHAPE_NAME, _
+        BODY_PLACEHOLDER, _
+        SOURCE_SHAPE_NAME, _
+        SOURCE_PLACEHOLDER, _
+        fullText, _
+        errorMessage _
+    ) Then
+        Exit Function
+    End If
+
+    ' [CHANGED] Locate 應： directly inside the ACTUAL, already-written
+    ' shape text using Find(), instead of computing its character
+    ' position from the original VBScript string. Manual position math
+    ' (Len()/InStr() on the source string) was unreliable because
+    ' PowerPoint collapses each vbCrLf pair into a single internal
+    ' paragraph-break character, silently shifting every hand-computed
+    ' offset - this is exactly what left "應：" itself uncolored.
+    ' Find() searches PowerPoint's own text directly, so no offset
+    ' math is needed at all.
     On Error Resume Next
+    Set bodyShape = slideObject.Shapes(BODY_SHAPE_NAME)
 
-    Set shapeObject = slideObject.Shapes(shapeName)
-
-    If Err.Number <> 0 Or shapeObject Is Nothing Then
-        errorMessage = MsgNamedShapeNotFound(shapeName)
+    If Err.Number <> 0 Or bodyShape Is Nothing Then
+        errorMessage = MsgNamedShapeNotFound(BODY_SHAPE_NAME)
         Err.Clear
         On Error GoTo 0
         Exit Function
     End If
 
-    If shapeObject.HasTextFrame <> msoTrue Then
-        errorMessage = MsgNamedShapeNoText(shapeName)
-        On Error GoTo 0
-        Exit Function
-    End If
-
-    shapeObject.TextFrame.AutoSize = ppAutoSizeNone
-    shapeObject.TextFrame2.AutoSize = msoAutoSizeNone
-    shapeObject.TextFrame.VerticalAnchor = 1
-
-    shapeObject.TextFrame.TextRange.Text = replacement
-
-    ' responseStartPosition includes the line break, therefore the
-    ' response line starts at this character position.
-    responseLength = Len(replacement) - responseStartPosition + 1
-
-    shapeObject.TextFrame.TextRange.Characters( _
-        responseStartPosition, _
-        responseLength _
-    ).Font.Color.RGB = RGB( _
-        PURPLE_RED, _
-        PURPLE_GREEN, _
-        PURPLE_BLUE _
+    Set foundRange = bodyShape.TextFrame.TextRange.Find( _
+        CNResponsePrefix(), 0, msoTrue, msoFalse _
     )
 
-    shapeObject.TextFrame.AutoSize = ppAutoSizeNone
-    shapeObject.TextFrame2.AutoSize = msoAutoSizeNone
-    shapeObject.TextFrame.VerticalAnchor = 1
+    If Err.Number = 0 And Not foundRange Is Nothing Then
+        colorStart = foundRange.Start
+        colorLength = bodyShape.TextFrame.TextRange.Length - colorStart + 1
+
+        If colorLength > 0 Then
+            bodyShape.TextFrame.TextRange.Characters( _
+                colorStart, _
+                colorLength _
+            ).Font.Color.RGB = RGB( _
+                PURPLE_RED, _
+                PURPLE_GREEN, _
+                PURPLE_BLUE _
+            )
+        End If
+    End If
 
     If Err.Number <> 0 Then
         errorMessage = Err.Description
@@ -1622,8 +1782,7 @@ Function SetCallResponseText( _
     End If
 
     On Error GoTo 0
-
-    SetCallResponseText = True
+    SetCallResponseTextAndSource = True
 End Function
 
 ' ===============================================================
