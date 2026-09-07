@@ -46,6 +46,14 @@ Const GUARD_ORPHAN_MIN_AGE_MIN = 60
 Dim fso, folderPath, masterPath, ppt, pres, sld, file
 Dim i, fileCount, msg, showPath
 Dim files()
+Dim wasCreated
+
+' [ADDED] True only when this script itself started a brand-new
+' PowerPoint.Application (no existing instance was found via
+' GetObject). ppt.Quit is only called when this is True, so the
+' script never force-quits a PowerPoint session the user already had
+' open with their own unrelated files.
+wasCreated = False
 
 Set fso = CreateObject("Scripting.FileSystemObject")
 folderPath = fso.GetParentFolderName(WScript.ScriptFullName)
@@ -58,10 +66,7 @@ If Not fso.FileExists(masterPath) Then
 End If
 
 ' [ADDED] Alert (and stop) if master.pptx or its .ppsx slideshow is
-' currently open anywhere, instead of silently closing it later. Uses
-' the "~$" lock-file Office creates while a file is open, so this
-' catches the file being open in ANY PowerPoint window or instance -
-' not just one this script happens to attach to.
+' currently open anywhere, instead of silently closing it later.
 If IsFileOpenByLock(masterPath) Then
     Fail "master.pptx " & ChrW(&H76EE) & ChrW(&H524D) & ChrW(&H5DF2) & ChrW(&H958B) & ChrW(&H555F) & ChrW(&H3002) & vbCrLf & vbCrLf & _
          ChrW(&H8ACB) & ChrW(&H5148) & ChrW(&H5728) & " PowerPoint " & ChrW(&H4E2D) & ChrW(&H95DC) & ChrW(&H9589) & " master.pptx" & ChrW(&HFF0C) & ChrW(&H7136) & ChrW(&H5F8C) & ChrW(&H518D) & ChrW(&H91CD) & ChrW(&H65B0) & ChrW(&H57F7) & ChrW(&H884C) & ChrW(&H3002)
@@ -106,6 +111,7 @@ Set ppt = GetObject(, "PowerPoint.Application")
 If Err.Number <> 0 Then
     Err.Clear
     Set ppt = CreateObject("PowerPoint.Application")
+    wasCreated = True
 End If
 If Err.Number <> 0 Or ppt Is Nothing Then
     msg = Err.Description
@@ -121,7 +127,7 @@ For i = ppt.Presentations.Count To 1 Step -1
     If LCase(ppt.Presentations(i).FullName) = LCase(masterPath) Then
         Err.Clear
         On Error GoTo 0
-        ppt.Quit
+        If wasCreated Then ppt.Quit
         Fail "master.pptx " & ChrW(&H76EE) & ChrW(&H524D) & ChrW(&H5DF2) & ChrW(&H958B) & ChrW(&H555F) & ChrW(&H3002) & vbCrLf & vbCrLf & _
              ChrW(&H8ACB) & ChrW(&H5148) & ChrW(&H95DC) & ChrW(&H9589) & " master.pptx" & ChrW(&HFF0C) & ChrW(&H7136) & ChrW(&H5F8C) & ChrW(&H518D) & ChrW(&H91CD) & ChrW(&H65B0) & ChrW(&H57F7) & ChrW(&H884C) & ChrW(&H3002)
     End If
@@ -130,7 +136,7 @@ If Err.Number <> 0 Then
     msg = Err.Description
     Err.Clear
     On Error GoTo 0
-    ppt.Quit
+    If wasCreated Then ppt.Quit
     Fail ChrW(&H7121) & ChrW(&H6CD5) & ChrW(&H6AA2) & ChrW(&H67E5) & ChrW(&H76EE) & ChrW(&H524D) & ChrW(&H958B) & ChrW(&H555F) & ChrW(&H7684) & ChrW(&H7C21) & ChrW(&H5831) & ChrW(&HFF1A) & " " & msg
 End If
 On Error GoTo 0
@@ -141,14 +147,14 @@ If Err.Number <> 0 Or pres Is Nothing Then
     msg = Err.Description
     Err.Clear
     On Error GoTo 0
-    ppt.Quit
+    If wasCreated Then ppt.Quit
     Fail ChrW(&H7121) & ChrW(&H6CD5) & ChrW(&H958B) & ChrW(&H555F) & " master.pptx" & ChrW(&H3002) & vbCrLf & msg
 End If
 On Error GoTo 0
 
 If pres.Slides.Count <> 1 Then
     pres.Close
-    ppt.Quit
+    If wasCreated Then ppt.Quit
     Fail "master.pptx " & ChrW(&H5FC5) & ChrW(&H9808) & ChrW(&H53EA) & ChrW(&H5305) & ChrW(&H542B) & ChrW(&H4E00) & ChrW(&H5F35) & ChrW(&H6295) & ChrW(&H5F71) & ChrW(&H7247) & ChrW(&H3002)
 End If
 
@@ -156,7 +162,7 @@ Set sld = pres.Slides(1)
 
 If Not BuildLinksFromDuplicate(sld, fileCount, files, msg) Then
     pres.Close
-    ppt.Quit
+    If wasCreated Then ppt.Quit
     Fail msg
 End If
 
@@ -172,13 +178,13 @@ On Error GoTo 0
 
 If msg <> "" Then
     pres.Close
-    ppt.Quit
+    If wasCreated Then ppt.Quit
     Fail msg
 End If
 
 If Not DeletePpsxFiles(folderPath, msg) Then
     pres.Close
-    ppt.Quit
+    If wasCreated Then ppt.Quit
     Fail msg
 End If
 
@@ -195,7 +201,7 @@ End If
 On Error GoTo 0
 
 pres.Close
-ppt.Quit
+If wasCreated Then ppt.Quit
 
 If msg <> "" Then Fail msg
 
@@ -282,10 +288,7 @@ Function BuildLinksFromDuplicate(ByVal slideObject, ByVal totalFiles, ByRef file
     ' (PowerPoint's own AutoFit / theme formatting overrides it), so
     ' instead of shrinking text, AUTO_LINK_CONTAINER is grown downward
     ' just enough to fit every row (including the LINE_HEIGHT_GAP
-    ' spacing), at TextBox 6's normal, unmodified font size. This is a
-    ' dry run: it only measures label widths (via MeasureTextWidthFromAnchor,
-    ' which already cleans up its own temporary shape) - no real shape
-    ' is touched here.
+    ' spacing), at TextBox 6's normal, unmodified font size.
     requiredBottom = ComputeRequiredBottom(slideObject, anchor, containerRight, _
         anchorLeft, anchorTop, lineHeight, rowStep, gapWidth, totalFiles, fileList)
 
@@ -362,11 +365,8 @@ End Function
 
 ' [ADDED] Dry-run layout pass at the anchor's normal, unmodified font
 ' size. Mirrors the real layout loop exactly (including the rowStep
-' spacing between rows), but only measures label widths (via
-' MeasureTextWidthFromAnchor, which is already side-effect free) and
-' tracks how far down the last row would reach. Returns that required
-' bottom position (in points) so the caller can grow AUTO_LINK_CONTAINER
-' by exactly the missing amount, instead of shrinking any font.
+' spacing between rows), but only measures label widths and tracks how
+' far down the last row would reach.
 Function ComputeRequiredBottom(ByVal slideObject, ByVal anchor, ByVal containerRight, _
     ByVal anchorLeft, ByVal anchorTop, ByVal rowHeight, ByVal rowStep, ByVal gapWidth, ByVal totalFiles, ByRef fileList)
 
@@ -393,20 +393,36 @@ Function ComputeRequiredBottom(ByVal slideObject, ByVal anchor, ByVal containerR
     ComputeRequiredBottom = currentY + rowHeight
 End Function
 
+' [CHANGED] Real hyperlink, not styled text: the hyperlink action is
+' now set on the TEXT (TextFrame.TextRange.ActionSettings) instead of
+' on the whole Shape (shapeObject.ActionSettings). This is the same
+' mechanism PowerPoint's own Insert -> Link uses when you select text
+' and add a link. Only text-level hyperlinks get PowerPoint's native,
+' automatic "Hyperlink" theme color (normally blue) with underline,
+' and only text-level hyperlinks get automatically recolored to the
+' "Followed Hyperlink" theme color (normally purple) once clicked
+' during a slide show. No manual Font.Color / Font.Underline is set
+' here on purpose - hardcoding those would fight with PowerPoint's own
+' visited-link color tracking and the link would never turn purple.
 Sub SetShapeHyperlink(ByVal shapeObject, ByVal targetFile)
     On Error Resume Next
-    shapeObject.ActionSettings(ppMouseClick).Action = ppActionHyperlink
-    shapeObject.ActionSettings(ppMouseClick).Hyperlink.Address = targetFile
-    shapeObject.ActionSettings(ppMouseClick).Hyperlink.SubAddress = ""
+    shapeObject.TextFrame.TextRange.ActionSettings(ppMouseClick).Action = ppActionHyperlink
+    shapeObject.TextFrame.TextRange.ActionSettings(ppMouseClick).Hyperlink.Address = targetFile
+    shapeObject.TextFrame.TextRange.ActionSettings(ppMouseClick).Hyperlink.SubAddress = ""
+
+    ' Also clear any leftover shape-level action from an older version
+    ' of this script, so the shape is not doubly clickable/ambiguous.
+    shapeObject.ActionSettings(ppMouseClick).Action = ppActionNone
     Err.Clear
     On Error GoTo 0
 End Sub
 
 Sub ClearShapeHyperlink(ByVal shapeObject)
     On Error Resume Next
+    shapeObject.TextFrame.TextRange.ActionSettings(ppMouseClick).Action = ppActionNone
+    shapeObject.TextFrame.TextRange.ActionSettings(ppMouseClick).Hyperlink.Address = ""
+    shapeObject.TextFrame.TextRange.ActionSettings(ppMouseClick).Hyperlink.SubAddress = ""
     shapeObject.ActionSettings(ppMouseClick).Action = ppActionNone
-    shapeObject.ActionSettings(ppMouseClick).Hyperlink.Address = ""
-    shapeObject.ActionSettings(ppMouseClick).Hyperlink.SubAddress = ""
     Err.Clear
     On Error GoTo 0
 End Sub
@@ -516,8 +532,7 @@ End Function
 
 ' [ADDED] True when fullPath is currently open in Office (any window,
 ' any instance). Detects the "~$<name>" lock file Office creates the
-' moment a file is opened and removes the moment it is closed - far
-' more reliable than checking one specific PowerPoint COM instance.
+' moment a file is opened and removes the moment it is closed.
 Function IsFileOpenByLock(ByVal fullPath)
     Dim dirPath, lockPath
 
