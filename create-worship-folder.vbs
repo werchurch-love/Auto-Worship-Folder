@@ -474,6 +474,9 @@ End Function
 
 Function FindSongPpt(ByVal worshipDataRoot, ByVal songName)
 
+    Dim songsFolder
+    Dim yearValue
+    Dim yearFolder
     Dim rootFolder
     Dim childFolder
     Dim foundPath
@@ -491,9 +494,43 @@ Function FindSongPpt(ByVal worshipDataRoot, ByVal songName)
         Exit Function
     End If
 
-    ' Steps 2-5: enumerate every subfolder in the order Windows
-    ' returns them; FindMatchingPptxRecursive searches each one
-    ' direct files first, then recurses downward with the same rule.
+    ' [CHANGED] Step 2: the "詩歌" subfolder, searched first. Recurses
+    ' via FindSongPpt so that the same
+    ' "詩歌 -> year -> digit-sorted others" priority applies again to
+    ' anything nested inside 詩歌 too.
+    If StrComp(fso.GetFileName(worshipDataRoot), CNSongs(), 1) <> 0 Then
+        songsFolder = fso.BuildPath(worshipDataRoot, CNSongs())
+
+        If fso.FolderExists(songsFolder) Then
+            foundPath = FindSongPpt(songsFolder, songName)
+
+            If foundPath <> "" Then
+                FindSongPpt = foundPath
+                Exit Function
+            End If
+        End If
+    End If
+
+    ' [CHANGED] Step 3: integer-named year folders, newest to oldest
+    ' (e.g. 2026, then 2025, ... down to MIN_SEARCH_YEAR). Recurses via
+    ' FindSongPpt for the same reason as Step 2.
+    For yearValue = MinNumber(Year(Date), MAX_SEARCH_YEAR) To MIN_SEARCH_YEAR Step -1
+        yearFolder = fso.BuildPath(worshipDataRoot, CStr(yearValue))
+
+        If fso.FolderExists(yearFolder) Then
+            foundPath = FindSongPpt(yearFolder, songName)
+
+            If foundPath <> "" Then
+                FindSongPpt = foundPath
+                Exit Function
+            End If
+        End If
+    Next
+
+    ' Step 4: every remaining subfolder (not "詩歌", not a year), in
+    ' "date-like number descending, then Windows order" (see
+    ' GetOrderedSubFolders), each recursed via FindSongPpt so the full
+    ' priority rule reapplies at every nested level.
     On Error Resume Next
     Set rootFolder = fso.GetFolder(worshipDataRoot)
 
@@ -505,16 +542,21 @@ Function FindSongPpt(ByVal worshipDataRoot, ByVal songName)
 
     On Error GoTo 0
 
-    For Each childFolder In rootFolder.SubFolders
+    For Each childFolder In GetOrderedSubFolders(rootFolder)
 
-        foundPath = FindMatchingPptxRecursive( _
-            childFolder.Path, _
-            songName _
-        )
+        If Not IsIntegerFolderName(childFolder.Name) Then
+            If StrComp(childFolder.Name, CNSongs(), 1) <> 0 Then
 
-        If foundPath <> "" Then
-            FindSongPpt = foundPath
-            Exit Function
+                foundPath = FindSongPpt( _
+                    childFolder.Path, _
+                    songName _
+                )
+
+                If foundPath <> "" Then
+                    FindSongPpt = foundPath
+                    Exit Function
+                End If
+            End If
         End If
     Next
 End Function
@@ -546,65 +588,102 @@ Function FindMatchingPptxDirect(ByVal folderPath, ByVal songName)
     Next
 End Function
 
-' Recursively finds the first .pptx file whose base name contains songName.
-' Skips junctions, symbolic links, and other reparse-point folders.
-Function FindMatchingPptxRecursive(ByVal folderPath, ByVal songName)
+' [ADDED] Extracts every digit character (0-9) from folderName, in the
+' order they appear, and returns them as a Double (e.g.
+' "Master20262222" -> 20262222). Returns -1 when folderName contains
+' no digits at all - used as a sentinel meaning "no date-like number".
+Function ExtractDigitsAsNumber(ByVal folderName)
+    Dim i, ch, digits
 
-    Dim folderObject
-    Dim fileObject
-    Dim subFolderObject
-    Dim foundPath
-    Dim attributes
+    digits = ""
 
-    FindMatchingPptxRecursive = ""
+    For i = 1 To Len(folderName)
+        ch = Mid(folderName, i, 1)
+        If ch >= "0" And ch <= "9" Then
+            digits = digits & ch
+        End If
+    Next
+
+    If digits = "" Then
+        ExtractDigitsAsNumber = -1
+    Else
+        ExtractDigitsAsNumber = CDbl(digits)
+    End If
+End Function
+
+' [ADDED] Returns an array of Folder objects from folderObject.SubFolders,
+' ordered so that:
+' - Any subfolder whose name contains at least one digit comes first,
+'   sorted by the number formed from just its digits, descending
+'   (e.g. "Master20262222" before "Master20261111").
+' - Subfolders with no digits at all come after, keeping the relative
+'   order Windows originally returned them in.
+Function GetOrderedSubFolders(ByVal folderObject)
+    Dim digitFolders(), digitKeys(), stringFolders()
+    Dim digitCount, stringCount, totalCount
+    Dim subFolderObject, key
+    Dim i, j, tempKey, tempFolder
+    Dim allFolders()
+
+    digitCount = 0
+    stringCount = 0
+    ReDim digitFolders(0)
+    ReDim digitKeys(0)
+    ReDim stringFolders(0)
 
     On Error Resume Next
-    Set folderObject = fso.GetFolder(folderPath)
+    For Each subFolderObject In folderObject.SubFolders
+        key = ExtractDigitsAsNumber(subFolderObject.Name)
 
-    If Err.Number <> 0 Or folderObject Is Nothing Then
-        Err.Clear
-        On Error GoTo 0
+        If key >= 0 Then
+            ReDim Preserve digitFolders(digitCount)
+            ReDim Preserve digitKeys(digitCount)
+            Set digitFolders(digitCount) = subFolderObject
+            digitKeys(digitCount) = key
+            digitCount = digitCount + 1
+        Else
+            ReDim Preserve stringFolders(stringCount)
+            Set stringFolders(stringCount) = subFolderObject
+            stringCount = stringCount + 1
+        End If
+    Next
+    Err.Clear
+    On Error GoTo 0
+
+    ' Sort digitFolders descending by digitKeys (bubble sort - the
+    ' number of sibling folders in one directory is always small).
+    For i = 0 To digitCount - 2
+        For j = 0 To digitCount - i - 2
+            If digitKeys(j) < digitKeys(j + 1) Then
+                tempKey = digitKeys(j)
+                digitKeys(j) = digitKeys(j + 1)
+                digitKeys(j + 1) = tempKey
+
+                Set tempFolder = digitFolders(j)
+                Set digitFolders(j) = digitFolders(j + 1)
+                Set digitFolders(j + 1) = tempFolder
+            End If
+        Next
+    Next
+
+    totalCount = digitCount + stringCount
+
+    If totalCount = 0 Then
+        GetOrderedSubFolders = Array()
         Exit Function
     End If
 
-    On Error GoTo 0
+    ReDim allFolders(totalCount - 1)
 
-    For Each fileObject In folderObject.Files
-        If IsMatchingSongPptx(fileObject.Name, songName) Then
-            FindMatchingPptxRecursive = fileObject.Path
-            Exit Function
-        End If
+    For i = 0 To digitCount - 1
+        Set allFolders(i) = digitFolders(i)
     Next
 
-    For Each subFolderObject In folderObject.SubFolders
-
-        On Error Resume Next
-        attributes = subFolderObject.Attributes
-
-        If Err.Number = 0 Then
-            If (attributes And FILE_ATTRIBUTE_REPARSE_POINT) = 0 Then
-
-                On Error GoTo 0
-
-                foundPath = FindMatchingPptxRecursive( _
-                    subFolderObject.Path, _
-                    songName _
-                )
-
-                If foundPath <> "" Then
-                    FindMatchingPptxRecursive = foundPath
-                    Exit Function
-                End If
-
-            Else
-                Err.Clear
-                On Error GoTo 0
-            End If
-        Else
-            Err.Clear
-            On Error GoTo 0
-        End If
+    For i = 0 To stringCount - 1
+        Set allFolders(digitCount + i) = stringFolders(i)
     Next
+
+    GetOrderedSubFolders = allFolders
 End Function
 
 ' True only when fileName is a PPTX and its name without extension
@@ -644,139 +723,6 @@ Function IsIntegerFolderName(ByVal folderName)
     re.Pattern = "^\d+$"
 
     IsIntegerFolderName = re.Test(CStr(folderName))
-End Function
-
-' Recursively searches only PPTX files for an exact case-insensitive filename.
-' It skips junctions, symbolic links, and other reparse-point folders.
-Function FindFileRecursivePptxOnly(ByVal folderPath, ByVal requestedFileName)
-
-    Dim folderObject
-    Dim fileObject
-    Dim subFolderObject
-    Dim foundPath
-    Dim attributes
-
-    FindFileRecursivePptxOnly = ""
-
-    On Error Resume Next
-
-    Set folderObject = fso.GetFolder(folderPath)
-
-    If Err.Number <> 0 Or folderObject Is Nothing Then
-        Err.Clear
-        On Error GoTo 0
-        Exit Function
-    End If
-
-    On Error GoTo 0
-
-    ' Check PPTX files directly inside this folder first.
-    For Each fileObject In folderObject.Files
-
-        If LCase(fso.GetExtensionName(fileObject.Name)) = "pptx" Then
-            If StrComp(fileObject.Name, requestedFileName, 1) = 0 Then
-                FindFileRecursivePptxOnly = fileObject.Path
-                Exit Function
-            End If
-        End If
-    Next
-
-    ' Then recursively search ordinary child folders only.
-    For Each subFolderObject In folderObject.SubFolders
-
-        On Error Resume Next
-
-        attributes = subFolderObject.Attributes
-
-        If Err.Number = 0 Then
-
-            If (attributes And FILE_ATTRIBUTE_REPARSE_POINT) = 0 Then
-
-                On Error GoTo 0
-
-                foundPath = FindFileRecursivePptxOnly( _
-                    subFolderObject.Path, _
-                    requestedFileName _
-                )
-
-                If foundPath <> "" Then
-                    FindFileRecursivePptxOnly = foundPath
-                    Exit Function
-                End If
-
-            Else
-                Err.Clear
-                On Error GoTo 0
-            End If
-
-        Else
-            Err.Clear
-            On Error GoTo 0
-        End If
-    Next
-End Function
-
-Function FindFileRecursive(ByVal folderPath, ByVal requestedFileName)
-
-    Dim folderObject
-    Dim fileObject
-    Dim subFolderObject
-    Dim foundPath
-    Dim attributes
-
-    FindFileRecursive = ""
-
-    On Error Resume Next
-
-    Set folderObject = fso.GetFolder(folderPath)
-
-    If Err.Number <> 0 Then
-        Err.Clear
-        On Error GoTo 0
-        Exit Function
-    End If
-
-    On Error GoTo 0
-
-    ' Check direct files in this folder first.
-    For Each fileObject In folderObject.Files
-        If StrComp(fileObject.Name, requestedFileName, 1) = 0 Then
-            FindFileRecursive = fileObject.Path
-            Exit Function
-        End If
-    Next
-
-    ' Search child folders.
-    ' Skip reparse points, junctions, and symbolic links.
-    For Each subFolderObject In folderObject.SubFolders
-
-        On Error Resume Next
-        attributes = subFolderObject.Attributes
-
-        If Err.Number = 0 Then
-            If (attributes And FILE_ATTRIBUTE_REPARSE_POINT) = 0 Then
-                On Error GoTo 0
-
-                foundPath = FindFileRecursive( _
-                    subFolderObject.Path, _
-                    requestedFileName _
-                )
-
-                If foundPath <> "" Then
-                    FindFileRecursive = foundPath
-                    Exit Function
-                End If
-
-            Else
-                Err.Clear
-                On Error GoTo 0
-            End If
-
-        Else
-            Err.Clear
-            On Error GoTo 0
-        End If
-    Next
 End Function
 
 ' ===============================================================
@@ -2290,13 +2236,6 @@ Function MsgtemplatesMissing()
                         ChrW(&H3002)
 End Function
 
-Function MsgCopyFolderMissing()
-    MsgCopyFolderMissing = ChrW(&H627E) & ChrW(&H4E0D) & ChrW(&H5230) & _
-                           " templates\worship-files " & _
-                           ChrW(&H8CC7) & ChrW(&H6599) & ChrW(&H593E) & _
-                           ChrW(&H3002)
-End Function
-
 Function MsgFileMissing(ByVal f)
     MsgFileMissing = ChrW(&H627E) & ChrW(&H4E0D) & ChrW(&H5230) & _
                      ChrW(&H6A94) & ChrW(&H6848) & ChrW(&HFF1A) & f
@@ -2370,16 +2309,6 @@ Function MsgNoValidSongFolders()
                              ChrW(&H4EFB) & ChrW(&H4F55) & ChrW(&H6709) & ChrW(&H6548) & ChrW(&H7684) & _
                              ChrW(&H8A69) & ChrW(&H6B4C) & ChrW(&H8CC7) & ChrW(&H6599) & ChrW(&H593E) & _
                              ChrW(&H8DEF) & ChrW(&H5F91) & ChrW(&H3002)
-End Function
-
-Function MsgSongRootMissing()
-    MsgSongRootMissing = ChrW(&H627E) & ChrW(&H4E0D) & ChrW(&H5230) & _
-                         " songs-folder.lnk " & _
-                         ChrW(&H6240) & ChrW(&H6307) & ChrW(&H5B9A) & _
-                         ChrW(&H7684) & ChrW(&H5D07) & ChrW(&H62DC) & _
-                         ChrW(&H7528) & ChrW(&H8CC7) & ChrW(&H6599) & _
-                         ChrW(&H6839) & ChrW(&H76EE) & ChrW(&H9304) & _
-                         ChrW(&H3002)
 End Function
 
 Function MsgCannotStartPowerPoint()
@@ -2550,31 +2479,6 @@ Function MsgNamedShapeNoText(ByVal shapeName)
                           ChrW(&H4E0D) & ChrW(&H662F) & _
                           ChrW(&H6587) & ChrW(&H5B57) & ChrW(&H65B9) & _
                           ChrW(&H584A) & ChrW(&H3002)
-End Function
-
-Function MsgCallSectionMissing()
-    MsgCallSectionMissing = CNCallResponse() & ".txt " & _
-                            ChrW(&H7F3A) & ChrW(&H5C11) & " " & _
-                            CNCallSection() & " " & _
-                            ChrW(&H6216) & " " & _
-                            CNResponseSection() & " " & _
-                            ChrW(&H6BB5) & ChrW(&H843D) & ChrW(&H3002)
-End Function
-
-Function MsgCallEmptyScripture()
-    MsgCallEmptyScripture = CNCallSection() & " " & _
-                            ChrW(&H6BB5) & ChrW(&H843D) & _
-                            ChrW(&H6C92) & ChrW(&H6709) & _
-                            ChrW(&H5167) & ChrW(&H5BB9) & ChrW(&H3002)
-End Function
-
-Function MsgCallNoPairs()
-    MsgCallNoPairs = CNResponseSection() & " " & _
-                     ChrW(&H6BB5) & ChrW(&H843D) & _
-                     ChrW(&H6C92) & ChrW(&H6709) & _
-                     ChrW(&H4EFB) & ChrW(&H4F55) & " " & _
-                     CNCallPrefix() & "/" & CNResponsePrefix() & " " & _
-                     ChrW(&H914D) & ChrW(&H5C0D) & ChrW(&H3002)
 End Function
 
 Function MsgCallPairMismatch()
