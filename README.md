@@ -2,11 +2,15 @@
 
 一鍵開好一個崇拜資料夾：自動生成「宣召及啟應／經訓／讀經」投影片、複製你指定的詩歌 pptx、複製固定環節投影片，最後更新 `master.pptx` 目錄頁，並輸出可即場放映的 `.ppsx`。
 
-| 📺 Demo 示範 |
-| :--- |
-| [▶️ 點我前往 YouTube 觀看] https://youtu.be/Ux96B1j_Jw0?si=UvyG0YIuD0w-Rvht |
+▶️ **[點此觀看 YouTube 完整操作示範](https://youtu.be/Ux96B1j_Jw0?si=UvyG0YIuD0w-Rvht)**
 
-▶️ **[點此觀看 YouTube 示範影片](https://youtu.be)**
+<a href="https://youtu.be/Ux96B1j_Jw0?si=UvyG0YIuD0w-Rvht" target="_blank">
+  <img src="https://wikimedia.org" alt="Watch the video" width="140" style="max-width: 100%;">
+</a>
+
+<a href="https://youtu.be/Ux96B1j_Jw0?si=UvyG0YIuD0w-Rvht" target="_blank">
+  <img src="https://wikimedia.org" alt="Watch the video" width="160">
+</a>
 ---
 
 ## 一、先決條件
