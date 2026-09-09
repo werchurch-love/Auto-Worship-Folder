@@ -7,8 +7,6 @@
 
 ▶️ **[觀看示範影片](https://youtu.be/Ux96B1j_Jw0?si=UvyG0YIuD0w-Rvht)**
 
----
-
 ## 🔐 安全
 
 > [!TIP]
@@ -38,8 +36,6 @@
 > [!CAUTION]
 > 不要把密碼、個人資料或內部檔案貼到公開 AI。
 
----
-
 ## ✅ 使用前
 
 - 只支援 **Windows**
@@ -48,8 +44,6 @@
 
 > [!IMPORTANT]
 > Mac、手機及 PowerPoint 網頁版不能使用。
-
----
 
 ## 📥 第一次設定
 
@@ -63,8 +57,6 @@
 D:\崇拜資料\詩歌
 C:\Users\你的名\Documents\詩歌
 ```
-
----
 
 ## 🚀 每星期 4 步
 
@@ -104,8 +96,6 @@ create-worship-folder.vbs
 
 等待完成提示即可。PowerPoint 自動開關是正常的。
 
----
-
 ## 📁 完成後
 
 | 檔案              | 用途             |
@@ -115,8 +105,6 @@ create-worship-folder.vbs
 | `<日期>崇拜.ppsx` | **當日雙擊放映** |
 
 找不到詩歌時，程式會留下「找不到」提示檔，請自行補回該詩歌。
-
----
 
 ## ⚠️ 注意
 
