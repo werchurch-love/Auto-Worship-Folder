@@ -6,6 +6,7 @@
 | :--- |
 | [▶️ 點我前往 YouTube 觀看] https://youtu.be/Ux96B1j_Jw0?si=UvyG0YIuD0w-Rvht |
 
+▶️ **[點此觀看 YouTube 示範影片](https://youtu.be)**
 ---
 
 ## 一、先決條件
