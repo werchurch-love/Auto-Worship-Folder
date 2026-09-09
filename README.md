@@ -4,11 +4,7 @@
 
 ▶️ **[點此觀看 YouTube 完整操作示範](https://youtu.be/Ux96B1j_Jw0?si=UvyG0YIuD0w-Rvht)**
 
-<a href="https://youtu.be/Ux96B1j_Jw0?si=UvyG0YIuD0w-Rvht" target="_blank">
-  <img src="https://wikimedia.org" alt="Watch the video" width="140" style="max-width: 100%;">
-</a>
-
-
+[![YouTube](https://shields.io)](https://youtu.be)
 ---
 
 ## 一、先決條件
