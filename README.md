@@ -4,6 +4,10 @@
 
 ## [🎬Demo 示範](https://youtu.be/Ux96B1j_Jw0?si=UvyG0YIuD0w-Rvht)
 
+| 📺 示範影片 |
+| :--- |
+| [▶️ 點我前往 YouTube 觀看](https://youtu.be) |
+
 ---
 
 ## 一、先決條件
