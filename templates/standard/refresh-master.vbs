@@ -499,32 +499,47 @@ Function MeasureTextWidthFromAnchor(ByVal slideObject, ByVal anchorShape, ByVal 
 End Function
 
 Function DeletePpsxFiles(ByVal targetFolder, ByRef errorMessage)
-    Dim folderObject, fileObject
+    Dim targetName, targetPath
 
     DeletePpsxFiles = False
     errorMessage = ""
 
     On Error Resume Next
-    Set folderObject = fso.GetFolder(targetFolder)
-    If Err.Number <> 0 Then
-        errorMessage = ChrW(&H7121) & ChrW(&H6CD5) & ChrW(&H5B58) & ChrW(&H53D6) & ChrW(&H76EE) & ChrW(&H524D) & ChrW(&H8CC7) & ChrW(&H6599) & ChrW(&H593E) & ChrW(&HFF1A) & " " & Err.Description
+
+    If Not fso.FolderExists(targetFolder) Then
+        errorMessage = ChrW(&H7121) & ChrW(&H6CD5) & ChrW(&H5B58) & ChrW(&H53D6) & _
+                       ChrW(&H76EE) & ChrW(&H524D) & ChrW(&H8CC7) & ChrW(&H6599) & _
+                       ChrW(&H593E) & ChrW(&HFF1A) & " " & targetFolder
         Err.Clear
         On Error GoTo 0
         Exit Function
     End If
 
-    For Each fileObject In folderObject.Files
-        If LCase(fso.GetExtensionName(fileObject.Name)) = "ppsx" Then
-            fileObject.Delete True
-            If Err.Number <> 0 Then
-                errorMessage = ChrW(&H7121) & ChrW(&H6CD5) & ChrW(&H522A) & ChrW(&H9664) & ChrW(&H6295) & ChrW(&H5F71) & ChrW(&H7247) & ChrW(&H986F) & ChrW(&H793A) & ChrW(&H6A94) & " " & fileObject.Name & ChrW(&HFF1A) & " " & _
-                    Err.Description
-                Err.Clear
-                On Error GoTo 0
-                Exit Function
-            End If
-        End If
-    Next
+    targetName = fso.GetFileName(targetFolder) & ".ppsx"
+    targetPath = fso.BuildPath(targetFolder, targetName)
+
+    Err.Clear
+
+    If Not fso.FileExists(targetPath) Then
+        Err.Clear
+        On Error GoTo 0
+        DeletePpsxFiles = True
+        Exit Function
+    End If
+
+    fso.DeleteFile targetPath, True
+
+    If Err.Number <> 0 Then
+        errorMessage = ChrW(&H7121) & ChrW(&H6CD5) & ChrW(&H522A) & ChrW(&H9664) & _
+                       ChrW(&H6295) & ChrW(&H5F71) & ChrW(&H7247) & ChrW(&H986F) & _
+                       ChrW(&H793A) & ChrW(&H6A94) & " " & targetName & _
+                       ChrW(&HFF1A) & " " & Err.Description
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    Err.Clear
     On Error GoTo 0
 
     DeletePpsxFiles = True
